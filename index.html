@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Ultimate Platformer Engine</title>
+<style>
+body{margin:0;overflow:hidden;background:#111;}
+canvas{display:block;margin:auto;background:#5ec9ff;}
+#hud{
+position:absolute;
+top:10px;left:10px;color:white;
+font-family:Arial;font-size:18px;
+}
+.btn{
+position:absolute;bottom:20px;
+width:60px;height:60px;
+background:rgba(255,255,255,0.2);
+border-radius:50%;
+text-align:center;
+line-height:60px;
+color:white;font-size:24px;
+}
+#left{left:20px;}
+#right{left:100px;}
+#jump{right:100px;}
+#shoot{right:20px;}
+</style>
+</head>
+<body>
+
+<div id="hud">
+Level: <span id="lvl">1</span> |
+Coins: <span id="coins">0</span> |
+Lives: <span id="lives">3</span>
+</div>
+
+<canvas id="game" width="1000" height="500"></canvas>
+
+<div id="left" class="btn">◀</div>
+<div id="right" class="btn">▶</div>
+<div id="jump" class="btn">▲</div>
+<div id="shoot" class="btn">●</div>
+
+<script>
+const canvas=document.getElementById("game");
+const ctx=canvas.getContext("2d");
+
+let gravity=0.6;
+let keys={};
+let cameraX=0;
+let level=1;
+let lives=3;
+let coins=0;
+let worldWidth=4000;
+let checkpoint=100;
+
+// SAVE SYSTEM
+if(localStorage.level) level=parseInt(localStorage.level);
+
+function saveGame(){
+localStorage.level=level;
+}
+
+// PLAYER
+let player={
+x:100,y:0,w:40,h:50,
+dx:0,dy:0,
+speed:5,
+jump:-13,
+grounded:false,
+frame:0,frameTimer:0,
+health:3,
+shield:false
+};
+
+// GAME OBJECTS
+let platforms=[],enemies=[],fireballs=[],lava=[],powerups=[],boss=null;
+
+function loadLevel(lvl){
+platforms=[];enemies=[];lava=[];powerups=[];boss=null;
+worldWidth=4000;
+
+platforms.push({x:0,y:450,w:4000,h:50});
+
+if(lvl===1){
+platforms.push({x:600,y:350,w:120,h:20});
+enemies.push({x:900,y:410,w:40,h:40,type:"walker"});
+powerups.push({x:1200,y:410,type:"speed"});
+}
+
+if(lvl===2){
+platforms.push({x:800,y:300,w:120,h:20});
+lava.push({x:1500,y:450,w:200,h:50});
+powerups.push({x:1000,y:410,type:"shield"});
+enemies.push({x:1100,y:410,w:40,h:40,type:"jumper"});
+}
+
+if(lvl===3){
+boss={x:3500,y:370,w:120,h:100,health:20};
+enemies.push({x:2000,y:410,w:40,h:40,type:"walker"});
+}
+
+document.getElementById("lvl").innerText=lvl;
+saveGame();
+}
+
+loadLevel(level);
+
+// INPUT
+document.addEventListener("keydown",e=>keys[e.key]=true);
+document.addEventListener("keyup",e=>keys[e.key]=false);
+
+function mobile(btn,key){
+btn.ontouchstart=()=>keys[key]=true;
+btn.ontouchend=()=>keys[key]=false;
+}
+mobile(left,"ArrowLeft");
+mobile(right,"ArrowRight");
+mobile(jump,"ArrowUp");
+mobile(shoot," ");
+
+// DRAW BACKGROUND (PARALLAX)
+function drawBG(){
+ctx.fillStyle="#5ec9ff";
+ctx.fillRect(0,0,canvas.width,canvas.height);
+
+ctx.fillStyle="#6fb3d2";
+ctx.fillRect(-cameraX*0.3,350,3000,150);
+
+ctx.fillStyle="#4fa3c2";
+ctx.fillRect(-cameraX*0.6,380,3000,120);
+}
+
+// COLLISION
+function collide(a,b){
+return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;
+}
+
+// UPDATE LOOP
+function update(){
+ctx.clearRect(0,0,canvas.width,canvas.height);
+drawBG();
+
+// MOVEMENT
+player.dx=0;
+if(keys["ArrowRight"]) player.dx=player.speed;
+if(keys["ArrowLeft"]) player.dx=-player.speed;
+if(keys["ArrowUp"]&&player.grounded){player.dy=player.jump;player.grounded=false;}
+
+if(keys[" "]){
+fireballs.push({x:player.x+20,y:player.y+20,dx:8});
+keys[" "]=false;
+}
+
+player.dy+=gravity;
+player.x+=player.dx;
+player.y+=player.dy;
+player.grounded=false;
+
+// PLATFORMS
+platforms.forEach(p=>{
+ctx.fillStyle="green";
+ctx.fillRect(p.x-cameraX,p.y,p.w,p.h);
+if(collide(player,p)){
+if(player.dy>0){
+player.y=p.y-player.h;
+player.dy=0;
+player.grounded=true;
+}
+}
+});
+
+// LAVA
+lava.forEach(l=>{
+ctx.fillStyle="red";
+ctx.fillRect(l.x-cameraX,l.y,l.w,l.h);
+if(collide(player,l)) damage();
+});
+
+// POWERUPS
+powerups.forEach(p=>{
+ctx.fillStyle=p.type==="speed"?"yellow":"cyan";
+ctx.fillRect(p.x-cameraX,p.y,20,20);
+if(collide(player,{x:p.x,y:p.y,w:20,h:20})){
+if(p.type==="speed") player.speed=8;
+if(p.type==="shield") player.shield=true;
+p.x=-100;
+}
+});
+
+// ENEMIES
+enemies.forEach(e=>{
+ctx.fillStyle="purple";
+ctx.fillRect(e.x-cameraX,e.y,e.w,e.h);
+
+if(e.type==="walker") e.x+=Math.sin(Date.now()/500)*2;
+if(e.type==="jumper"&&Math.random()<0.01) e.y-=100;
+
+if(collide(player,e)) damage();
+});
+
+// BOSS
+if(boss){
+ctx.fillStyle="black";
+ctx.fillRect(boss.x-cameraX,boss.y,boss.w,boss.h);
+
+fireballs.forEach(f=>{
+if(f.x>boss.x&&f.x<boss.x+boss.w){
+boss.health--;
+f.x=-100;
+if(boss.health<=0){
+alert("YOU WIN THE GAME!");
+localStorage.clear();
+location.reload();
+}
+}
+});
+}
+
+// FIREBALLS
+fireballs.forEach(f=>{
+f.x+=f.dx;
+ctx.fillStyle="orange";
+ctx.beginPath();
+ctx.arc(f.x-cameraX,f.y,6,0,Math.PI*2);
+ctx.fill();
+});
+
+// CAMERA
+cameraX=player.x-400;
+if(cameraX<0)cameraX=0;
+if(cameraX>worldWidth-canvas.width)
+cameraX=worldWidth-canvas.width;
+
+// PLAYER DRAW
+ctx.fillStyle=player.shield?"cyan":"orange";
+ctx.fillRect(player.x-cameraX,player.y,player.w,player.h);
+
+// LEVEL CHANGE
+if(player.x>3900){
+level++;
+if(level>3){
+alert("ALL LEVELS COMPLETE!");
+localStorage.clear();
+location.reload();
+}
+loadLevel(level);
+player.x=100;player.y=0;
+}
+
+requestAnimationFrame(update);
+}
+
+function damage(){
+if(player.shield){player.shield=false;return;}
+lives--;
+document.getElementById("lives").innerText=lives;
+player.x=checkpoint;player.y=0;
+if(lives<=0){
+alert("GAME OVER");
+localStorage.clear();
+location.reload();
+}
+}
+
+update();
+</script>
+</body>
+</html>
